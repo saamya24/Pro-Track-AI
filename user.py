@@ -62,6 +62,8 @@ class ValidationSystem(QMainWindow):
                 padding: 5px;
             }
         """
+
+        
         
         # Total Cycles
         self.total_cycles_label = QLabel("Total Cycles:")
@@ -132,8 +134,9 @@ class ValidationSystem(QMainWindow):
         self.correct_cycles = 0
         self.incorrect_cycles = 0
 
-        # Load ROI definitions
+        # Load ROI definitions and process sequence
         self.roi_definitions = self.load_roi_definitions()
+        self.process_sequence = self.load_process_sequence()
         
         # Initialize Mediapipe Hands
         self.mp_hands = mp.solutions.hands
@@ -141,6 +144,7 @@ class ValidationSystem(QMainWindow):
         self.mp_draw = mp.solutions.drawing_utils
 
         self.previous_roi = None
+        self.detected_sequence = []
         self.log_file = "hand_detection_log.txt"
         self.logged_rois = set()
 
@@ -164,6 +168,15 @@ class ValidationSystem(QMainWindow):
         except FileNotFoundError:
             print("ROI definitions file not found")
         return roi_definitions
+    
+    def load_process_sequence(self):
+        process_sequence = []
+        try:
+            with open('process_definitions.txt', 'r') as f:
+                process_sequence = [line.strip() for line in f]
+        except FileNotFoundError:
+            print("Process definitions file not found")
+        return process_sequence
 
     def update_frame(self):
         ret, frame = self.cap.read()
@@ -198,12 +211,14 @@ class ValidationSystem(QMainWindow):
                         if len(points_in_roi) > 3:
                             roi['color'] = (0, 0, 255)  # Highlight ROI in red
                             detected_rois.add(roi['label'])
-                            if roi['label'] not in self.logged_rois:
+                            if not self.detected_sequence or roi['label'] != self.detected_sequence[-1]:
+                                self.detected_sequence.append(roi['label'])
                                 self.log_presence_in_roi(roi['label'])
                         else:
                             roi['color'] = (0, 255, 0)  # Revert to green
 
             self.logged_rois.intersection_update(detected_rois)
+            self.check_sequence()
 
             # Draw ROIs on the frame
             for roi in self.roi_definitions:
@@ -223,6 +238,11 @@ class ValidationSystem(QMainWindow):
                 self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
             self.video_label.setPixmap(scaled_pixmap)
+
+    def check_sequence(self):
+        if self.detected_sequence == self.process_sequence:
+            self.status_label.setText("Cycle successfully executed!")
+            self.detected_sequence.clear()
 
     def reset_cycle(self):
         # Reset current cycle and update status
