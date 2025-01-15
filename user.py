@@ -154,6 +154,8 @@ class ValidationSystem(QMainWindow):
         self.timer.timeout.connect(self.update_frame)
         self.timer.start(20)
 
+        self.is_paused = False
+
     def load_roi_definitions(self):
         roi_definitions = []
         try:
@@ -180,6 +182,9 @@ class ValidationSystem(QMainWindow):
         return process_sequence
 
     def update_frame(self):
+        if self.is_paused:
+            return  # Skip frame processing when paused
+
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.flip(frame, 1)
@@ -253,6 +258,17 @@ class ValidationSystem(QMainWindow):
             self.append_log()  # Append detected sequence to log file
             self.detected_sequence.clear()
 
+        elif len(self.detected_sequence) > len(self.process_sequence) or \
+                self.detected_sequence != self.process_sequence[:len(self.detected_sequence)]:
+            # Sequence mismatch detected
+            self.pause_video()
+            self.status_label.setText("Incorrect cycle executed. Press reset button!")
+            QApplication.processEvents()
+
+    def pause_video(self):
+        """Pause the video feed and processing."""
+        self.is_paused = True
+
     def clear_status_message(self):
         self.status_label.setText("")
 
@@ -263,6 +279,11 @@ class ValidationSystem(QMainWindow):
                 f.write(f"{roi},{timestamp}\n")
 
     def reset_cycle(self):
+        """Reset the current cycle."""
+        # Reset cycle and clear error message
+        self.status_label.setText("Cycle Reset")
+        self.detected_sequence.clear()
+        self.is_paused = False
         # Reset current cycle and update status
         self.status_label.setText("Cycle Reset")
         self.total_cycles += 1
