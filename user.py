@@ -1,9 +1,11 @@
 import cv2
+import mediapipe as mp
 import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QPushButton, QLabel, QGridLayout, QSizePolicy)
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QImage, QPixmap
+from datetime import datetime
 
 class ValidationSystem(QMainWindow):
     def __init__(self):
@@ -121,9 +123,10 @@ class ValidationSystem(QMainWindow):
         
         self.main_layout.addSpacing(20)
 
+
         # Initialize video capture
         self.cap = cv2.VideoCapture(0)
-        
+
         # Initialize cycle counters
         self.total_cycles = 0
         self.correct_cycles = 0
@@ -131,11 +134,20 @@ class ValidationSystem(QMainWindow):
 
         # Load ROI definitions
         self.roi_definitions = self.load_roi_definitions()
+        
+        # Initialize Mediapipe Hands
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        self.mp_draw = mp.solutions.drawing_utils
+
+        self.previous_roi = None
+        self.log_file = "hand_detection_log.txt"
+        self.logged_rois = set()
 
         # Set up video timer
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)
+        self.timer.start(20)
 
     def load_roi_definitions(self):
         roi_definitions = []
@@ -146,7 +158,8 @@ class ValidationSystem(QMainWindow):
                     roi_definitions.append({
                         'label': label,
                         'start': (int(x1), int(y1)),
-                        'end': (int(x2), int(y2))
+                        'end': (int(x2), int(y2)),
+                        'color': (0, 255, 0)  # Default to green
                     })
         except FileNotFoundError:
             print("ROI definitions file not found")
@@ -155,26 +168,57 @@ class ValidationSystem(QMainWindow):
     def update_frame(self):
         ret, frame = self.cap.read()
         if ret:
-            # Flip frame horizontally for mirror effect
             frame = cv2.flip(frame, 1)
-            
+
+            # Convert to RGB for Mediapipe
+            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.hands.process(rgb_image)
+
+            # Draw hand landmarks if detected
+            detected_rois = set()
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    self.mp_draw.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+
+            # Process each hand and check against ROIs
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    hand_points = [
+                        (int(lm.x * frame.shape[1]), int(lm.y * frame.shape[0]))
+                        for lm in hand_landmarks.landmark
+                    ]
+
+                    for roi in self.roi_definitions:
+                        points_in_roi = [
+                            point for point in hand_points
+                            if roi['start'][0] <= point[0] <= roi['end'][0] and
+                               roi['start'][1] <= point[1] <= roi['end'][1]
+                        ]
+
+                        if len(points_in_roi) > 3:
+                            roi['color'] = (0, 0, 255)  # Highlight ROI in red
+                            detected_rois.add(roi['label'])
+                            if roi['label'] not in self.logged_rois:
+                                self.log_presence_in_roi(roi['label'])
+                        else:
+                            roi['color'] = (0, 255, 0)  # Revert to green
+
+            self.logged_rois.intersection_update(detected_rois)
+
             # Draw ROIs on the frame
             for roi in self.roi_definitions:
-                # Draw rectangle
-                cv2.rectangle(frame, roi['start'], roi['end'], (0, 255, 0), 2)
-                
-                # Add label above the rectangle
+                cv2.rectangle(frame, roi['start'], roi['end'], roi['color'], 2)
                 label_position = (roi['start'][0], roi['start'][1] - 10)
                 cv2.putText(frame, roi['label'], label_position,
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-            
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, roi['color'], 2)
+
             # Convert frame to Qt format
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_image.shape
             bytes_per_line = ch * w
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            
-            # Scale the image to fit the label while maintaining aspect ratio
+
+            # Display image in the QLabel
             scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
                 self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
@@ -193,9 +237,17 @@ class ValidationSystem(QMainWindow):
         self.correct_cycles_value.setText(str(self.correct_cycles))
         self.incorrect_cycles_value.setText(str(self.incorrect_cycles))
 
+    def log_presence_in_roi(self, roi_label):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"{roi_label},{timestamp}\n"
+        with open(self.log_file, 'a') as f:
+            f.write(log_entry)
+        self.logged_rois.add(roi_label)
+
     def closeEvent(self, event):
         # Clean up resources when closing
         self.cap.release()
+        self.hands.close()
 
 if __name__ == '__main__':
     app = QApplication([])
