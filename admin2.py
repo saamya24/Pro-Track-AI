@@ -73,8 +73,9 @@ class ProcessDefiner(QMainWindow):
         self.layout.addWidget(roi_selection_widget)
 
         # Process Table with improved styling
-        self.process_table = QTableWidget(0, 3)
-        self.process_table.setHorizontalHeaderLabels(["From ROI", "To ROI", "Action"])
+        self.process_table = QTableWidget(0, 1)
+        self.process_table.setHorizontalHeaderLabels(["From ROI"])
+
         self.process_table.setStyleSheet("""
             QTableWidget {
                 background-color: #ffffff;
@@ -174,22 +175,12 @@ class ProcessDefiner(QMainWindow):
         from_roi_combo.setStyleSheet(combo_style)
         self.process_table.setCellWidget(row_count, 0, from_roi_combo)
 
-        to_roi_combo = QComboBox()
-        to_roi_combo.addItems([roi['label'] for roi in self.roi_definitions])
-        to_roi_combo.setStyleSheet(combo_style)
-        self.process_table.setCellWidget(row_count, 1, to_roi_combo)
-
-        action_item = QTableWidgetItem("Move Hand")
-        action_item.setTextAlignment(Qt.AlignCenter)
-        self.process_table.setItem(row_count, 2, action_item)
-
     def save_process(self):
         process_steps = []
         for row in range(self.process_table.rowCount()):
             from_roi = self.process_table.cellWidget(row, 0).currentText()
-            to_roi = self.process_table.cellWidget(row, 1).currentText()
-            action = self.process_table.item(row, 2).text()
-            process_steps.append(f"{from_roi},{to_roi},{action}")
+            process_steps.append(f"{from_roi}")
+
         
         with open('process_definitions.txt', 'w') as f:
             f.write('\n'.join(process_steps))
