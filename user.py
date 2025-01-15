@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QImage, QPixmap
 from datetime import datetime
+import time
 
 class ValidationSystem(QMainWindow):
     def __init__(self):
@@ -242,7 +243,24 @@ class ValidationSystem(QMainWindow):
     def check_sequence(self):
         if self.detected_sequence == self.process_sequence:
             self.status_label.setText("Cycle successfully executed!")
+            QApplication.processEvents()
+            QTimer.singleShot(3000, self.clear_status_message) # Pause to display success message
+
+            self.total_cycles += 1
+            self.correct_cycles += 1
+            self.update_cycle_counts()
+
+            self.append_log()  # Append detected sequence to log file
             self.detected_sequence.clear()
+
+    def clear_status_message(self):
+        self.status_label.setText("")
+
+    def append_log(self):
+        with open(self.log_file, 'a') as f:
+            for roi in self.process_sequence:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"{roi},{timestamp}\n")
 
     def reset_cycle(self):
         # Reset current cycle and update status
@@ -262,7 +280,6 @@ class ValidationSystem(QMainWindow):
         log_entry = f"{roi_label},{timestamp}\n"
         with open(self.log_file, 'a') as f:
             f.write(log_entry)
-        self.logged_rois.add(roi_label)
 
     def closeEvent(self, event):
         # Clean up resources when closing
