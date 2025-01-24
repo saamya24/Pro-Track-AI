@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QImage, QPixmap
 from datetime import datetime
-import time
+from datetime import datetime, timedelta
 
 class ValidationSystem(QMainWindow):
     def __init__(self):
@@ -138,10 +138,14 @@ class ValidationSystem(QMainWindow):
         # Load ROI definitions and process sequence
         self.roi_definitions = self.load_roi_definitions()
         self.process_sequence = self.load_process_sequence()
+        self.last_detected_roi = None
+        self.last_detected_roi = None
+        self.last_detected_time = datetime.min
+
         
         # Initialize Mediapipe Hands
         self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        self.hands = self.mp_hands.Hands(model_complexity = 1, static_image_mode=False, max_num_hands=2, min_detection_confidence=0.1, min_tracking_confidence=0.9)
         self.mp_draw = mp.solutions.drawing_utils
 
         self.previous_roi = None
@@ -215,11 +219,14 @@ class ValidationSystem(QMainWindow):
                         ]
 
                         if len(points_in_roi) > 3:
+                            current_time = datetime.now()
                             roi['color'] = (0, 0, 255)  # Highlight ROI in red
                             detected_rois.add(roi['label'])
                             if not self.detected_sequence or roi['label'] != self.detected_sequence[-1]:
                                 self.detected_sequence.append(roi['label'])
                                 self.log_presence_in_roi(roi['label'])
+                                self.last_detected_roi = roi['label']
+                                self.last_detected_time = current_time
                         else:
                             roi['color'] = (0, 255, 0)  # Revert to green
 
@@ -245,6 +252,11 @@ class ValidationSystem(QMainWindow):
             )
             self.video_label.setPixmap(scaled_pixmap)
 
+    def log_detection(self, roi_label):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.log_file, 'a') as f:
+            f.write(f"{roi_label},{timestamp}\n")
+
     def check_sequence(self):
         if self.detected_sequence == self.process_sequence:
             self.status_label.setText("Cycle successfully executed!")
@@ -254,22 +266,22 @@ class ValidationSystem(QMainWindow):
             self.total_cycles += 1
             self.correct_cycles += 1
             self.update_cycle_counts()
-
-            self.append_log()  # Append detected sequence to log file
             self.detected_sequence.clear()
-
-        elif len(self.detected_sequence) > len(self.process_sequence) or \
-                self.detected_sequence != self.process_sequence[:len(self.detected_sequence)]:
+            
+        if len(self.detected_sequence) == len(self.process_sequence) and \
+                self.detected_sequence != self.process_sequence[:len(self.detected_sequence)]: 
             # Sequence mismatch detected
             self.pause_video()
             self.status_label.setText("Incorrect cycle executed. Press reset button!")
             QApplication.processEvents()
+            #self.detected_sequence.clear()
 
     def pause_video(self):
         """Pause the video feed and processing."""
         self.is_paused = True
 
     def clear_status_message(self):
+        self.detected_sequence.clear()
         self.status_label.setText("")
 
     def append_log(self):
@@ -297,8 +309,17 @@ class ValidationSystem(QMainWindow):
         self.incorrect_cycles_value.setText(str(self.incorrect_cycles))
 
     def log_presence_in_roi(self, roi_label):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"{roi_label},{timestamp}\n"
+        current_time = datetime.now()
+    
+    # Debounce logic: Skip logging if the same ROI was logged within 500ms
+        if self.last_detected_roi == roi_label and \
+                (current_time - self.last_detected_time).total_seconds() < 0.5:
+            return  # Skip logging to avoid duplication
+
+    # Log the ROI
+        self.last_detected_roi = roi_label
+        self.last_detected_time = current_time
+        log_entry = f"{roi_label},{current_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
         with open(self.log_file, 'a') as f:
             f.write(log_entry)
 
